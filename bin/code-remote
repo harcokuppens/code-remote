@@ -51,12 +51,13 @@ function vscode-remote {
           local git_url="$hostfolder"
           #escaped_url=$(echo "$git_url" | tr ' $%^&*()[]+#!~`?><,;=\\\-@:/' '_')
           #hostfolder="$vscodegitdir/$escaped_url"
-          local hex_encoded_url=$(printf "%s" "$git_url" | xxd -p)
+          local hex_encoded_url
+          hex_encoded_url=$(printf "%s" "$git_url" | xxd -p)
           hex_encoded_url=${hex_encoded_url//[[:space:]]/}
           hostfolder="$vscodegitdir/$hex_encoded_url"
           if [[ ! -d "$hostfolder" ]]
           then    
-              git clone $git_url $hostfolder
+              git clone "$git_url" "$hostfolder"
           fi    
        else
            if [[ ! -d "$hostfolder" ]]
@@ -87,13 +88,13 @@ function vscode-remote {
    # otherwise
    #    we assume that the local folder is bound in the /workspaces
    #    folder in the container, and open that folder in vscode
-   cat ${devcontfile} |egrep '^\s*"workspaceFolder' 2>/dev/null >/dev/null
+   grep -E '^\s*"workspaceFolder' "$devcontfile" 2>/dev/null >/dev/null
    local result=$?
-   local containerfolder=""
+   local containerfolder
    if [[ $result -eq 0 ]]
    then
       # workspaceFolder set 
-      containerfolder=$(cat ${devcontfile} |egrep  '^\s*"workspaceFolder' | sed 's/.*:\s*"//' |sed 's/"\s*,\s*$//')
+      containerfolder=$(grep -E  '^\s*"workspaceFolder' "$devcontfile" | sed 's/.*:\s*"//' |sed 's/"\s*,\s*$//')
       echo "workspace folder in image: $containerfolder  (no binding used)"
    else    
       # workspaceFolder NOT set 
@@ -102,11 +103,12 @@ function vscode-remote {
       # so we assume if workspaceFolder not set, that either image or dockerfile
       # is set, so then the local folder gets binded in the container at
       # /workspaces/ with same basename:
-      basename=$(basename $hostfolder)
+      basename=$(basename "$hostfolder")
       containerfolder="/workspaces/$basename"
       echo "no workspacefolder in container specified, so we assume the bind: local folder '$hostfolder' to folder '$containerfolder' in container"
    fi    
-   local hexencodedhostfolder=$(printf "%s" "$hostfolder" | xxd -p)
+   local hexencodedhostfolder
+   hexencodedhostfolder=$(printf "%s" "$hostfolder" | xxd -p)
    hexencodedhostfolder=${hexencodedhostfolder//[[:space:]]/}
 
    code --folder-uri "vscode-remote://dev-container+$hexencodedhostfolder/$containerfolder"; 
