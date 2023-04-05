@@ -1,0 +1,146 @@
+#!/bin/bash
+
+
+readonly USAGE="
+USAGE:
+       code-remote [FOLDER|GIT-URL]
+
+"
+
+# make script exit early on errors
+set -eE  # BEST: traps error in subshell with right linenumber in code
+       # -e  Exit immediately if a command exits with a non-zero status.
+       # -E  If set, the ERR trap is inherited by shell functions.
+       # We set this also for every function, because when in subshells
+       # set -eE is not inherited. By setting it in every function we
+       # sure it is enabled again. (set -u and set -x is always inherited in subshells)
+       # e.g. when calling a function in command substition
+       #   manifest_digest=$(get_manifest_digest_for_a_tag_for_a_specific_os_arch "$image" "$tag")
+       #                    `-> runs in subshell
+set -u # script ends with signal EXIT when unset variable is used
+       # also use "local" and "readonly" keywords to limit scope of declared variables
+set -o nounset;set -u
+
+# check required commands
+if ! command -v code &> /dev/null
+then
+   echo "ERROR: 'code' commandline command could not be found"
+   echo "       Install using Visual Studio Code with \"Install 'code' command in PATH\" command."
+   exit 1
+fi
+
+function vscode-remote {   
+   set -eE 
+   local hostfolder
+   local devcontfile
+   
+   if [[  "$#" -gt "1" ]]
+   then
+      echo "$USAGE"
+      exit 0
+   fi 
+
+   if [[  "$#" -eq "0" ]]
+   then
+       hostfolder="$PWD"
+   else
+       hostfolder="$1"
+       if [[ "$hostfolder" == git@* || "$hostfolder" == http* ]] ;
+       then
+          local vscodegitdir="/tmp/.vscode-remote-git-clones"
+          local git_url="$hostfolder"
+          #escaped_url=$(echo "$git_url" | tr ' $%^&*()[]+#!~`?><,;=\\\-@:/' '_')
+          #hostfolder="$vscodegitdir/$escaped_url"
+          local hex_encoded_url=$(printf "%s" "$git_url" | xxd -p)
+          hex_encoded_url=${hex_encoded_url//[[:space:]]/}
+          hostfolder="$vscodegitdir/$hex_encoded_url"
+          if [[ ! -d "$hostfolder" ]]
+          then    
+              git clone $git_url $hostfolder
+          fi    
+       else
+           if [[ ! -d "$hostfolder" ]]
+           then 
+               echo "ERROR: folder '$hostfolder' does not exist"
+               exit 1
+           fi    
+           hostfolder=$(realpath "$hostfolder") 
+       fi
+   fi 
+
+   if [[ -e "${hostfolder}/.devcontainer/devcontainer.json"  ]]
+   then
+       devcontfile="${hostfolder}/.devcontainer/devcontainer.json"
+   else  
+     if [[ -e "${hostfolder}/.devcontainer.json"  ]]
+     then 
+         devcontfile="${hostfolder}/.devcontainer.json"
+     else
+         echo "ERROR: cannot find a devcontainer.json file" 1>&2
+         return 1
+     fi    
+   fi 
+
+   # get workspaceFolder from devcontainer.json
+   # if a workspaceFolder is found 
+   #    we use that as folder which vscode opens in  the container,
+   # otherwise
+   #    we assume that the local folder is bound in the /workspaces
+   #    folder in the container, and open that folder in vscode
+   cat ${devcontfile} |egrep '^\s*"workspaceFolder' 2>/dev/null >/dev/null
+   local result=$?
+   local containerfolder=""
+   if [[ $result -eq 0 ]]
+   then
+      # workspaceFolder set 
+      containerfolder=$(cat ${devcontfile} |egrep  '^\s*"workspaceFolder' | sed 's/.*:\s*"//' |sed 's/"\s*,\s*$//')
+      echo "workspace folder in image: $containerfolder  (no binding used)"
+   else    
+      # workspaceFolder NOT set 
+      # cannot determine containerfolder from workspaceFolder config value in  ${devcontfile} 
+      #
+      # so we assume if workspaceFolder not set, that either image or dockerfile
+      # is set, so then the local folder gets binded in the container at
+      # /workspaces/ with same basename:
+      basename=$(basename $hostfolder)
+      containerfolder="/workspaces/$basename"
+      echo "no workspacefolder in container specified, so we assume the bind: local folder '$hostfolder' to folder '$containerfolder' in container"
+   fi    
+   local hexencodedhostfolder=$(printf "%s" "$hostfolder" | xxd -p)
+   hexencodedhostfolder=${hexencodedhostfolder//[[:space:]]/}
+
+   code --folder-uri "vscode-remote://dev-container+$hexencodedhostfolder/$containerfolder"; 
+   
+   # from https://code.visualstudio.com/docs/remote/troubleshooting#_connect-to-a-remote-host-from-the-terminal
+   # https://code.visualstudio.com/docs/remote/troubleshooting#_connect-to-a-remote-host-from-the-terminal
+   # https://github.com/microsoft/vscode-remote-release/issues/2133#issuecomment-618328138
+   # https://github.com/microsoft/vscode-remote-release/issues/2133#issuecomment-860863636
+   # https://github.com/microsoft/vscode-remote-release/issues/2133#issuecomment-1212180962
+   #  
+   # we can use 
+   #     vscode --folder-uri "vscode-remote://dev-container+$hexencodedhostfolder/$containerfolder"
+   # or
+   #     vscode --remote  dev-container+$hexencodedhostfolder $containerfolder
+   #
+   #
+   # background info from # https://code.visualstudio.com/remote/advancedcontainers/change-default-source-mount:
+   #
+   #  If you add the image or dockerFile properties to devcontainer.json, VS Code will automatically "bind" mount your current workspace folder into the container.
+   #   cases:
+   #    -  https://github.com/microsoft/vscode-remote-try-python -> has "image": ..  => so mounts folder in /workspaces in container
+   #    -  /Users/harcok/Documents/help/tools/web/cms_and_wiki_and_websitegenerators/pmwiki/pmwikiconf
+   #         or 
+   #       git@gitlab.science.ru.nl:harcok/pmwikiconf.git
+   #        has ""dockerComposeFile: .. => but not "dockerFile" nor "image"  =>  so does not mount folder in /workspaces in container
+   #           => in this case we must supply a workspaceFolder, otherwise vscode does not know which folder to open
+   #              note: if not given, then vscode ask's for it in a dialog
+   #  note: 
+   #     special case in vscode itself: 
+   #        Dev Containers: Clone repository in (named) container volume 
+   #       -> clones git repo first in (named) container volume
+   #        then vscode ignores  WorkspaceFolder (and related mount command) 
+   #        and just mounts this volume in /volumes and set it as the
+   #        workspacefolder in vscode
+}
+
+vscode-remote "$@"
