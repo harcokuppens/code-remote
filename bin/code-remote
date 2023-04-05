@@ -1,5 +1,6 @@
 #!/bin/bash
 
+# script analysed with https://www.shellcheck.net
 
 readonly USAGE="
 USAGE:
