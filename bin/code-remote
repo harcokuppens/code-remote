@@ -6,9 +6,9 @@ readonly try_languages=( "python" "go" "php" "node" "java" "rust" "dotnet" "cpp"
 readonly USAGE="
 USAGE:
        code-remote FOLDER|GIT-URL
-       code-remote --try LANGUAGE
+       code-remote --try|-t LANGUAGE
 
-       LANGUAGE: only the following languages are supported: 
+       LANGUAGE: the following languages are available in a try dev-container: 
                   ${try_languages[@]} 
 
 "
@@ -56,6 +56,7 @@ function code-remote-try {
        return 1 
     fi
     local url="https://github.com/microsoft/vscode-remote-try-$lang"
+    echo "opening dev container from $url"
     code-remote "$url"
 }    
     
@@ -63,8 +64,9 @@ function code-remote {
    set -eE 
    local hostfolder
    local devcontfile
-   
-   while [[ "$#" > 0 && "$1" == -* ]]
+  
+   # parse options
+   while [[ "$#" -gt 0 && "$1" == -* ]]
    do
       if [[ "$1" == "--help" || "$1" == "-h" ]]
       then
@@ -79,25 +81,43 @@ function code-remote {
           exit 0
       fi
    done 
+
+   # we must have a single argument
    if [[  "$#" -ne "1" ]]
    then
       echo "$USAGE"
       exit 0
    fi 
 
+   # get hostfolder 
    hostfolder="$1"
    if [[ "$hostfolder" == git@* || "$hostfolder" == http* ]] ;
    then
       local vscodegitdir="/tmp/.vscode-remote-git-clones"
       local git_url="$hostfolder"
-      local hex_encoded_url
-      hex_encoded_url=$(printf "%s" "$git_url" | xxd -p)
-      hex_encoded_url=${hex_encoded_url//[[:space:]]/}
-      hostfolder="$vscodegitdir/$hex_encoded_url"
+      # local hex_encoded_url
+      # hex_encoded_url=$(printf "%s" "$git_url" | xxd -p)
+      # hex_encoded_url=${hex_encoded_url//[[:space:]]/}
+      # hostfolder="$vscodegitdir/$hex_encoded_url"
+
+      # http(s):// or git@ only says indirectly something about authentication method  
+      # but what comes after it is the real location of the repository
+      # strip git@ prefix
+      hostfolder=${hostfolder#git@}
+      # strip http:// or https:// prefix
+      hostfolder=${hostfolder#http://}
+      hostfolder=${hostfolder#https://}
+      # escape some characters with _
+      #hostfolder=$(echo "$hostfolder" | tr ' $%^&*()[]+#!~`?><,;=\\/' '_')
+      
+      hostfolder="$vscodegitdir/$hostfolder"
+      
+      #note git automatically creates all folders in hostfolder which do not exist when cloning to a hostfolder
       if [[ ! -d "$hostfolder" ]]
       then    
           git clone "$git_url" "$hostfolder"
-      fi    
+      fi  
+      
    else
        if [[ ! -d "$hostfolder" ]]
        then 
@@ -107,6 +127,8 @@ function code-remote {
        hostfolder=$(realpath "$hostfolder") 
    fi
 
+   # get devcontainer.json file
+   #
    if [[ -e "${hostfolder}/.devcontainer/devcontainer.json"  ]]
    then
        devcontfile="${hostfolder}/.devcontainer/devcontainer.json"
@@ -120,34 +142,58 @@ function code-remote {
      fi    
    fi 
 
-   # get workspaceFolder from devcontainer.json
-   # if a workspaceFolder is found 
-   #    we use that as folder which vscode opens in  the container,
-   # otherwise
-   #    we assume that the local folder is bound in the /workspaces
-   #    folder in the container, and open that folder in vscode
-   local containerfolder
-   if grep -E '^\s*"workspaceFolder' "$devcontfile" 2>/dev/null >/dev/null
+   # get workspacefolder from devcontainer.json
+   local workspacefolder
+   # first check whether some fields are specified in devcontainer.json
+   local contains_workspaceFolder="false"
+   local contains_image="false"
+   local contains_dockerFile="false"
+   local contains_dockerComposeFile="false"
+   grep -E '^\s*"workspaceFolder' "$devcontfile" 2>/dev/null >/dev/null && contains_workspaceFolder="true"
+   grep -E '^\s*"image' "$devcontfile" 2>/dev/null >/dev/null && contains_image="true"
+   grep -E '^\s*"dockerFile' "$devcontfile" 2>/dev/null >/dev/null && contains_dockerFile="true"
+   grep -E '^\s*"dockerComposeFile' "$devcontfile" 2>/dev/null >/dev/null && contains_dockerComposeFile="true"
+
+   if [[ "$contains_dockerComposeFile" == "true" ]]
    then
-      # workspaceFolder set 
-      containerfolder=$(grep -E  '^\s*"workspaceFolder' "$devcontfile" | sed 's/.*:\s*"//' |sed 's/"\s*,\s*$//')
-      echo "workspace folder in image: $containerfolder  (no binding used)"
-   else    
-      # workspaceFolder NOT set 
-      # cannot determine containerfolder from workspaceFolder config value in  ${devcontfile} 
-      #
-      # so we assume if workspaceFolder not set, that either image or dockerfile
-      # is set, so then the local folder gets binded in the container at
-      # /workspaces/ with same basename:
-      basename=$(basename "$hostfolder")
-      containerfolder="/workspaces/$basename"
-      echo "no workspacefolder in container specified, so we assume the bind: local folder '$hostfolder' to folder '$containerfolder' in container"
+       echo "using docker compose to start a composition of containers"
+       if [[ "$contains_workspaceFolder" == "true" ]]
+       then
+          workspacefolder=$(grep -E  '^\s*"workspaceFolder' "$devcontfile" | sed 's/.*:\s*"//' |sed 's/"\s*,\s*$//')
+          echo "explicit set workspace folder in devcontainer to: $workspacefolder"
+       else    
+          echo "no workspace folder for devcontainer specified"
+          echo "so set workspace folder in devcontainer to default: /"
+       fi
+   else  
+       if  [[ "$contains_image" == "true" || "$contains_dockerFile" == "true"  ]]
+       then
+           echo "using a single container using an image or dockerfile"
+           local basename
+           local bindfolder
+           basename=$(basename "$hostfolder")
+           bindfolder="/workspaces/$basename"
+           echo "by default local folder '$hostfolder' binded to folder '$bindfolder' in container"
+           if [[ "$contains_workspaceFolder" == "true" ]]
+           then
+              workspacefolder=$(grep -E  '^\s*"workspaceFolder' "$devcontfile" | sed 's/.*:\s*"//' |sed 's/"\s*,\s*$//')
+              echo "explicit set workspace folder in devcontainer to: $workspacefolder"
+           else    
+              workspacefolder=$bindfolder
+              echo "no workspace folder in devcontainer config  specified"
+              echo "so set workspace folder in devcontainer config by default to binded folder: $bindfolder "
+           fi   
+       else 
+           echo "ERROR: devcontainer config '$devcontfile'" 'is missing one of "image", "dockerFile" or "dockerComposeFile" properties.'
+           exit 1
+       fi    
    fi    
+
+   # using hostfolder and workspacefolder open the devcontainer    
    local hexencodedhostfolder
    hexencodedhostfolder=$(printf "%s" "$hostfolder" | xxd -p)
    hexencodedhostfolder=${hexencodedhostfolder//[[:space:]]/}
-
-   code --folder-uri "vscode-remote://dev-container+$hexencodedhostfolder/$containerfolder"; 
+   code --folder-uri "vscode-remote://dev-container+$hexencodedhostfolder/$workspacefolder" 
    
    # from https://code.visualstudio.com/docs/remote/troubleshooting#_connect-to-a-remote-host-from-the-terminal
    # https://code.visualstudio.com/docs/remote/troubleshooting#_connect-to-a-remote-host-from-the-terminal
@@ -156,9 +202,9 @@ function code-remote {
    # https://github.com/microsoft/vscode-remote-release/issues/2133#issuecomment-1212180962
    #  
    # we can use 
-   #     vscode --folder-uri "vscode-remote://dev-container+$hexencodedhostfolder/$containerfolder"
+   #     code --folder-uri "vscode-remote://dev-container+$hexencodedhostfolder/$containerfolder"
    # or
-   #     vscode --remote  dev-container+$hexencodedhostfolder $containerfolder
+   #     code --remote  dev-container+$hexencodedhostfolder $containerfolder
    #
    #
    # background info from # https://code.visualstudio.com/remote/advancedcontainers/change-default-source-mount:
@@ -175,10 +221,10 @@ function code-remote {
    #  note: 
    #     special case in vscode itself: 
    #        Dev Containers: Clone repository in (named) container volume 
-   #       -> clones git repo first in (named) container volume
-   #        then vscode ignores  WorkspaceFolder (and related mount command) 
-   #        and just mounts this volume in /volumes and set it as the
-   #        workspacefolder in vscode
+   #     then  
+   #        vscode clones git in a (named) container volume and then 
+   #        mounts this volume in /volumes and set it as the workspacefolder in vscode
+   #        vscode ignores the fields WorkspaceFolder and workspaceMount in devcontainer.json 
 }
 
 code-remote "$@"
