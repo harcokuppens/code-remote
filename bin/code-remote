@@ -2,9 +2,14 @@
 
 # script analysed with https://www.shellcheck.net
 
+readonly try_languages=( "python" "go" "php" "node" "java" "rust" "dotnet" "cpp" "sqlserver" )
 readonly USAGE="
 USAGE:
-       code-remote [FOLDER|GIT-URL]
+       code-remote FOLDER|GIT-URL
+       code-remote --try LANGUAGE
+
+       LANGUAGE: only the following languages are supported: 
+                  ${try_languages[@]} 
 
 "
 
@@ -30,45 +35,77 @@ then
    exit 1
 fi
 
-function vscode-remote {   
+function find_in_array() {
+  local searchword="$1"
+  shift
+  for item in "$@"
+  do 
+      [[ "$item" == "$searchword" ]] && return 0 
+  done
+  return 1
+}
+
+function code-remote-try {
+    set -eE 
+    local lang="$1"
+
+    if ! find_in_array "$lang" "${try_languages[@]}" 
+    then
+       echo "ERROR: The language '$lang' is not available in a try dev-container." 
+       echo "       Only the following languages are supported: ${try_languages[@]}"
+       return 1 
+    fi
+    local url="https://github.com/microsoft/vscode-remote-try-$lang"
+    code-remote "$url"
+}    
+    
+function code-remote {   
    set -eE 
    local hostfolder
    local devcontfile
    
-   if [[  "$#" -gt "1" ]]
+   while [[ "$#" > 0 && "$1" == -* ]]
+   do
+      if [[ "$1" == "--help" || "$1" == "-h" ]]
+      then
+          echo "$USAGE"
+          exit 0
+      fi
+      if [[ "$1" == "--try" || "$1" == "-t" ]]
+      then 
+          [[ "$#" -lt 2 ]] &&  echo "$USAGE" && exit 1
+          lang="$2" 
+          code-remote-try "$lang"          
+          exit 0
+      fi
+   done 
+   if [[  "$#" -ne "1" ]]
    then
       echo "$USAGE"
       exit 0
    fi 
 
-   if [[  "$#" -eq "0" ]]
+   hostfolder="$1"
+   if [[ "$hostfolder" == git@* || "$hostfolder" == http* ]] ;
    then
-       hostfolder="$PWD"
+      local vscodegitdir="/tmp/.vscode-remote-git-clones"
+      local git_url="$hostfolder"
+      local hex_encoded_url
+      hex_encoded_url=$(printf "%s" "$git_url" | xxd -p)
+      hex_encoded_url=${hex_encoded_url//[[:space:]]/}
+      hostfolder="$vscodegitdir/$hex_encoded_url"
+      if [[ ! -d "$hostfolder" ]]
+      then    
+          git clone "$git_url" "$hostfolder"
+      fi    
    else
-       hostfolder="$1"
-       if [[ "$hostfolder" == git@* || "$hostfolder" == http* ]] ;
-       then
-          local vscodegitdir="/tmp/.vscode-remote-git-clones"
-          local git_url="$hostfolder"
-          #escaped_url=$(echo "$git_url" | tr ' $%^&*()[]+#!~`?><,;=\\\-@:/' '_')
-          #hostfolder="$vscodegitdir/$escaped_url"
-          local hex_encoded_url
-          hex_encoded_url=$(printf "%s" "$git_url" | xxd -p)
-          hex_encoded_url=${hex_encoded_url//[[:space:]]/}
-          hostfolder="$vscodegitdir/$hex_encoded_url"
-          if [[ ! -d "$hostfolder" ]]
-          then    
-              git clone "$git_url" "$hostfolder"
-          fi    
-       else
-           if [[ ! -d "$hostfolder" ]]
-           then 
-               echo "ERROR: folder '$hostfolder' does not exist"
-               exit 1
-           fi    
-           hostfolder=$(realpath "$hostfolder") 
-       fi
-   fi 
+       if [[ ! -d "$hostfolder" ]]
+       then 
+           echo "ERROR: folder '$hostfolder' does not exist"
+           exit 1
+       fi    
+       hostfolder=$(realpath "$hostfolder") 
+   fi
 
    if [[ -e "${hostfolder}/.devcontainer/devcontainer.json"  ]]
    then
@@ -89,10 +126,8 @@ function vscode-remote {
    # otherwise
    #    we assume that the local folder is bound in the /workspaces
    #    folder in the container, and open that folder in vscode
-   grep -E '^\s*"workspaceFolder' "$devcontfile" 2>/dev/null >/dev/null
-   local result=$?
    local containerfolder
-   if [[ $result -eq 0 ]]
+   if grep -E '^\s*"workspaceFolder' "$devcontfile" 2>/dev/null >/dev/null
    then
       # workspaceFolder set 
       containerfolder=$(grep -E  '^\s*"workspaceFolder' "$devcontfile" | sed 's/.*:\s*"//' |sed 's/"\s*,\s*$//')
@@ -146,4 +181,4 @@ function vscode-remote {
    #        workspacefolder in vscode
 }
 
-vscode-remote "$@"
+code-remote "$@"
