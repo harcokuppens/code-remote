@@ -5,7 +5,7 @@
 readonly try_languages=( "python" "go" "php" "node" "java" "rust" "dotnet" "cpp" "sqlserver" )
 readonly USAGE="
 USAGE:
-       code-remote FOLDER|GIT-URL
+       code-remote FOLDER|GIT-URL [WORKSPACEFOLDER]
        code-remote --try|-t LANGUAGE
 
        LANGUAGE: the following languages are available in a try dev-container: 
@@ -26,6 +26,8 @@ set -eE  # BEST: traps error in subshell with right linenumber in code
 set -u # script ends with signal EXIT when unset variable is used
        # also use "local" and "readonly" keywords to limit scope of declared variables
 set -o nounset;set -u
+
+vscodegitdir="/tmp/code-remote-git-clones"
 
 # check required commands
 if ! command -v code &> /dev/null
@@ -63,8 +65,16 @@ function code-remote-try {
 function code-remote {   
    set -eE 
    local hostfolder
+   local workspacefolder
    local devcontfile
-  
+   local backupfile
+   local volumename
+   local option_allow_workspacefolder_from_json
+   local option_volume_mode
+     
+   option_allow_workspacefolder_from_json="false"
+   option_volume_mode="false"
+
    # parse options
    while [[ "$#" -gt 0 && "$1" == -* ]]
    do
@@ -80,25 +90,42 @@ function code-remote {
           code-remote-try "$lang"          
           exit 0
       fi
+      if [[ "$1" == "-f" ]]
+      then 
+          option_allow_workspacefolder_from_json="true"
+          shift
+      fi
+      if [[ "$1" == "-v" ]]
+      then 
+          option_volume_mode="true"
+          shift
+      fi
    done 
 
    # we must have a single argument
-   if [[  "$#" -ne "1" ]]
+   if [[  "$#" -lt "1" || "$#" -gt "2" ]]
    then
       echo "$USAGE"
       exit 0
    fi 
 
-   # get hostfolder 
+   # get arguments
    hostfolder="$1"
+   if [[  "$#" -eq "2" ]]
+   then
+       workspacefolder="$2"
+   else 
+       workspacefolder=""
+   fi 
+
+   local volume_mode
+   volume_mode="false"
+
+   # get hostfolder 
    if [[ "$hostfolder" == git@* || "$hostfolder" == http* ]] ;
    then
-      local vscodegitdir="/tmp/.vscode-remote-git-clones"
+      volume_mode="true"
       local git_url="$hostfolder"
-      # local hex_encoded_url
-      # hex_encoded_url=$(printf "%s" "$git_url" | xxd -p)
-      # hex_encoded_url=${hex_encoded_url//[[:space:]]/}
-      # hostfolder="$vscodegitdir/$hex_encoded_url"
 
       # http(s):// or git@ only says indirectly something about authentication method  
       # but what comes after it is the real location of the repository
@@ -110,13 +137,43 @@ function code-remote {
       # escape some characters with _
       #hostfolder=$(echo "$hostfolder" | tr ' $%^&*()[]+#!~`?><,;=\\/' '_')
       
+      # remove ":" from hostfolder because otherwise local folder may be seen as
+      # ssh remote for mirror command
+      hostfolder=$(echo "$hostfolder"| tr ':' "_" )
+      # remove optional .git suffix 
+      hostfolder="${hostfolder%.git}"
+      # note: leave slashes in hostfolder so that we can easily derive basename from it
+
+      # have full url encoded in volumename to prevent conflicts
+      volumename=$(echo "$hostfolder"| tr '/' "_" )
+      volumename="code-remote-volume-${volumename}"
+      # final hostfolder is prefixed with vscodegitdir
       hostfolder="$vscodegitdir/$hostfolder"
       
-      #note git automatically creates all folders in hostfolder which do not exist when cloning to a hostfolder
-      if [[ ! -d "$hostfolder" ]]
+      if [[ -z $(docker volume ls -qf name=$volumename) ]]
       then    
+          echo "volume $volumename does not yet exist"
+
+          # first clone git data
+          #note git automatically creates all folders in hostfolder which do not exist when cloning to a hostfolder
+          if [[  -d "$hostfolder" ]]
+          then    
+              # cleanup old hostfolder
+              rm -rf "$hostfolder"
+          fi  
+          # clone git folder fresh
           git clone "$git_url" "$hostfolder"
-      fi  
+          
+          # create named volume
+          docker volume create "$volumename" 
+
+          # mirror gitdata in hostfolder into volume
+          echo mirror -q --no-warn "$hostfolder" "docker-vol://$volumename"
+          mirror -q --no-warn "$hostfolder" "docker-vol://$volumename"
+      else    
+          echo "volume $volumename does already exist"
+      fi
+
       
    else
        if [[ ! -d "$hostfolder" ]]
@@ -142,52 +199,109 @@ function code-remote {
      fi    
    fi 
 
-   # get workspacefolder from devcontainer.json
-   local workspacefolder
-   # first check whether some fields are specified in devcontainer.json
-   local contains_workspaceFolder="false"
-   local contains_image="false"
-   local contains_dockerFile="false"
-   local contains_dockerComposeFile="false"
-   grep -E '^\s*"workspaceFolder' "$devcontfile" 2>/dev/null >/dev/null && contains_workspaceFolder="true"
-   grep -E '^\s*"image' "$devcontfile" 2>/dev/null >/dev/null && contains_image="true"
-   grep -E '^\s*"dockerFile' "$devcontfile" 2>/dev/null >/dev/null && contains_dockerFile="true"
-   grep -E '^\s*"dockerComposeFile' "$devcontfile" 2>/dev/null >/dev/null && contains_dockerComposeFile="true"
 
-   if [[ "$contains_dockerComposeFile" == "true" ]]
+   if [[ "$volume_mode" == "true"  ]] 
    then
-       echo "using docker compose to start a composition of containers"
-       if [[ "$contains_workspaceFolder" == "true" ]]
+       # unset workspaceMount and set mounts to used named volume in devcontainer 
+       backupfile="${devcontfile}.code-remote-backup"
+       cp "$devcontfile" "$backupfile"
+       local basemountname
+       basemountname=$(basename "$hostfolder")
+       cat "$backupfile" | grep -E -v '\s*//' | jq '.workspaceMount = null'  - | jq '.mounts = [{ "source": "'$volumename'", "target": "/workspaces/'$basemountname'", "type": "volume" }]' > "$devcontfile"
+   fi    
+
+   # get workspacefolder from devcontainer.json if not given on cmdline
+   if [[ "$workspacefolder" == ""  ]] 
+   then
+       # first check whether some fields are specified in devcontainer.json
+       local contains_workspaceFolder="false"
+       local contains_image="false"
+       local contains_dockerFile="false"
+       local contains_dockerComposeFile="false"
+       grep -E '^\s*"workspaceFolder' "$devcontfile" 2>/dev/null >/dev/null && contains_workspaceFolder="true"
+       grep -E '^\s*"image' "$devcontfile" 2>/dev/null >/dev/null && contains_image="true"
+       grep -E '^\s*"dockerFile' "$devcontfile" 2>/dev/null >/dev/null && contains_dockerFile="true"
+       grep -E '^\s*"dockerComposeFile' "$devcontfile" 2>/dev/null >/dev/null && contains_dockerComposeFile="true"
+
+       # first verify devcontainer.json file correctly configured 
+       if [[ "$contains_dockerComposeFile" == "true" ]]
        then
-          workspacefolder=$(grep -E  '^\s*"workspaceFolder' "$devcontfile" | sed 's/.*:\s*"//' |sed 's/"\s*,\s*$//')
-          echo "explicit set workspace folder in devcontainer to: $workspacefolder"
-       else    
-          echo "no workspace folder for devcontainer specified"
-          echo "so set workspace folder in devcontainer to default: /"
-       fi
-   else  
-       if  [[ "$contains_image" == "true" || "$contains_dockerFile" == "true"  ]]
+           if  [[ "$contains_image" == "true" || "$contains_dockerFile" == "true"  ]]
+           then
+               echo "ERROR: devcontainer config '$devcontfile'" 'cannot have both a "dockerComposeFile" property and an "image" or "dockerFile" property.'
+               exit 1           
+           fi
+           local contains_service="false"
+           grep -E '^\s*"service' "$devcontfile" 2>/dev/null >/dev/null && contains_service="true"
+           if [[ "$contains_service" == "true" ]]
+           then       
+              service=$(grep -E  '^\s*"service' "$devcontfile" | sed 's/.*:\s*"//' |sed 's/"\s*,\s*$//')
+              echo "opening vscode in devcontainer of service '$service'"
+           else       
+               echo "ERROR: devcontainer config '$devcontfile'" 'is missing a "service" property'
+               exit 1           
+           fi                  
+       else  
+           if ! [[ "$contains_image" == "true" || "$contains_dockerFile" == "true"  ]]
+           then
+               echo "ERROR: devcontainer config '$devcontfile'" 'is missing one of "image", "dockerFile" or "dockerComposeFile" properties.'
+               exit 1
+           fi    
+       fi    
+
+       if [[ "$volume_mode" == "true"  ]] 
        then
-           echo "using a single container using an image or dockerfile"
-           local basename
-           local bindfolder
-           basename=$(basename "$hostfolder")
-           bindfolder="/workspaces/$basename"
-           echo "by default local folder '$hostfolder' binded to folder '$bindfolder' in container"
-           if [[ "$contains_workspaceFolder" == "true" ]]
+           # repo/folder data is put in volume and mounted in container (no bind done)
+           if [[ "$contains_dockerComposeFile" == "true" ]]
+           then
+               echo "using docker compose to start a composition of containers (named volume mount done)"
+           else  
+               echo "using a single container using an image or dockerfile (named volume mount done)"
+           fi    
+           if [[ "$contains_workspaceFolder" == "true" && "$option_allow_workspacefolder_from_json" == "true" ]]
            then
               workspacefolder=$(grep -E  '^\s*"workspaceFolder' "$devcontfile" | sed 's/.*:\s*"//' |sed 's/"\s*,\s*$//')
-              echo "explicit set workspace folder in devcontainer to: $workspacefolder"
+              echo "explicit set in devcontainer.json the workspace folder for the dev container to: $workspacefolder"
            else    
-              workspacefolder=$bindfolder
-              echo "no workspace folder in devcontainer config  specified"
-              echo "so set workspace folder in devcontainer config by default to binded folder: $bindfolder "
-           fi   
-       else 
-           echo "ERROR: devcontainer config '$devcontfile'" 'is missing one of "image", "dockerFile" or "dockerComposeFile" properties.'
-           exit 1
+              local basemountname
+              basemountname=$(basename "$hostfolder")
+              workspacefolder="/workspaces/$basemountname"
+              echo "by default set workspace folder in dev container to volume mountdir: $workspacefolder"
+           fi
+       else
+           # folder data is bind mounted into container
+           if [[ "$contains_dockerComposeFile" == "true" ]]
+           then
+               echo "using docker compose to start a composition of containers (no bind done)"
+               
+               if [[ "$contains_workspaceFolder" == "true" ]]
+               then
+                  workspacefolder=$(grep -E  '^\s*"workspaceFolder' "$devcontfile" | sed 's/.*:\s*"//' |sed 's/"\s*,\s*$//')
+                  echo "explicit set workspace folder in devcontainer to: $workspacefolder"
+               else    
+                  echo "no workspace folder for devcontainer specified"
+                  echo "so set workspace folder in devcontainer to default: /"
+               fi
+           else  
+               echo "using a single container using an image or dockerfile (bind mount done)"
+
+               local basemountname
+               local bindfolder
+               basemountname=$(basename "$hostfolder")
+               bindfolder="/workspaces/$basemountname"
+               echo "by default local folder '$hostfolder' binded to folder '$bindfolder' in container"
+               if [[ "$contains_workspaceFolder" == "true" ]]
+               then
+                  workspacefolder=$(grep -E  '^\s*"workspaceFolder' "$devcontfile" | sed 's/.*:\s*"//' |sed 's/"\s*,\s*$//')
+                  echo "explicit set workspace folder in devcontainer to: $workspacefolder"
+               else    
+                  workspacefolder=$bindfolder
+                  echo "no workspace folder in devcontainer config  specified"
+                  echo "so set workspace folder in devcontainer config by default to binded folder: $bindfolder "
+               fi   
+           fi    
        fi    
-   fi    
+   fi
 
    # using hostfolder and workspacefolder open the devcontainer    
    local hexencodedhostfolder
