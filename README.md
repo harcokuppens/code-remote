@@ -11,8 +11,8 @@ The `code-mirror` command is a simple scripts in `bash`, so you can easily fetch
     LATEST_TAG="$(curl -s https://api.github.com/repos/${REPO}/releases/latest | jq -r '.tag_name')"
     INSTALL_DIR=/usr/local/bin # make sure INSTALL_DIR is in your PATH environment variable
     DOWNLOAD_URL="https://raw.githubusercontent.com/${REPO}/${LATEST_TAG}/bin/"
-    curl -Lo ${INSTALL_DIR}/${PROGRAM}  "$DOWNLOAD_URL/${PROGRAM}"
-    chmod a+x ${INSTALL_DIR}/${PROGRAM}"
+    curl -Lo "${INSTALL_DIR}/${PROGRAM}"  "$DOWNLOAD_URL/${PROGRAM}"
+    chmod a+x "${INSTALL_DIR}/${PROGRAM}"
       
 Requirements:  
 
