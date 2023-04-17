@@ -2,6 +2,29 @@
 
 Launch a dev-container from a local folder or git URL directly in visual studio code from the command line.
 
+## Installation 
+
+The `code-mirror` command is a simple scripts in `bash`, so you can easily fetch it for a specific version from github:
+
+
+    VERSION="v1.1.0" 
+    INSTALL_DIR=/usr/local/bin # make sure INSTALL_DIR is in your PATH environment variable
+    DOWNLOAD_URL="https://raw.githubusercontent.com/harcokuppens/mirror/${VERSION}/bin/"
+    curl -Lo ${INSTALL_DIR}/mirror  "$DOWNLOAD_URL/mirror"
+    chmod a+x ${INSTALL_DIR}/mirror
+    curl -Lo ${INSTALL_DIR}/diffdir  "$DOWNLOAD_URL/diffdir"
+    chmod a+x ${INSTALL_DIR}/diffdir
+    
+      
+Requirements:  
+
+* `bash` shell
+* `mirror` tool from https://github.com/harcokuppens/mirror/
+* `docker` tool 
+* `code` commandline tool of Visual Studio Code
+
+## Description
+
 Help info from `code-remote --help`:
 
 
