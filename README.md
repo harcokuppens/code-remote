@@ -6,15 +6,13 @@ Launch a dev-container from a local folder or git URL directly in visual studio 
 
 The `code-mirror` command is a simple scripts in `bash`, so you can easily fetch it for a specific version from github:
 
-
-    VERSION="v1.1.0" 
+    PROGRAM="code-remote"
+    REPO="harcokuppens/code-remote" 
+    LATEST_TAG="$(curl -s https://api.github.com/repos/${REPO}/releases/latest | jq -r '.tag_name')"
     INSTALL_DIR=/usr/local/bin # make sure INSTALL_DIR is in your PATH environment variable
-    DOWNLOAD_URL="https://raw.githubusercontent.com/harcokuppens/mirror/${VERSION}/bin/"
-    curl -Lo ${INSTALL_DIR}/mirror  "$DOWNLOAD_URL/mirror"
-    chmod a+x ${INSTALL_DIR}/mirror
-    curl -Lo ${INSTALL_DIR}/diffdir  "$DOWNLOAD_URL/diffdir"
-    chmod a+x ${INSTALL_DIR}/diffdir
-    
+    DOWNLOAD_URL="https://raw.githubusercontent.com/${REPO}/${LATEST_TAG}/bin/"
+    curl -Lo ${INSTALL_DIR}/${PROGRAM}  "$DOWNLOAD_URL/${PROGRAM}"
+    chmod a+x ${INSTALL_DIR}/${PROGRAM}"
       
 Requirements:  
 
