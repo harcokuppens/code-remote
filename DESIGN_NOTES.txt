@@ -1,0 +1,215 @@
+these are scratch notes, from which I brainstormed the idea for vs-code
+this is not not nicely formatted
+
+=================================================================================================  
+  design notes
+=================================================================================================  
+
+ general idea
+     a) folder -> you want local bind you can edit on host
+                => with --volume option however still do same as in b)  
+     b) git url. -> all in container   (using a volume)
+
+code-remote 
+  command line tool to directly open dev containers from commandline
+ 
+  
+   in vscode gui we mean with: 
+     url case: "Dev Containers: Clone Repository in Container Volume..." -> supply a git url!
+     folder case: "Dev Containers: Open folder in Container..."    -> uses current host folder opened in vscode          
+   which will be mapped to our cmdline tool as:
+     url case:     code-remote GIT-URL
+     folder case:  code-remote FOLDER 
+
+how two cases handled by vscode gui (and how to handle them with cmdline tool code-remote)
+
+   image/dockerfile
+       folder case:  mount of host folder (called a bind) in /workspaces/<FOLDERBASENAME> 
+                    which is also set as workspacefolder   (by default automatically,no config needed in devcontainer.json )
+                      -> workspaceFolder and workspaceMount can be changed in devcontainer.json 
+                      
+       url case: volume mount of image met clone of repo in /workspaces/<REPOBASENAME>
+                 which is also set as workspacefolder  (by default automatically,no config needed in devcontainer.json )
+                  -> workspaceFolder and workspaceMount fields in  devcontainer.json are IGNORED!!
+
+                          
+       => implement same behavior for code-remote
+           except that in url case    I still use workspaceFolder  
+           
+             
+    docker-compose
+     -> folder case: no bind!          \,-> contradicting cases!
+     -> url case: volume mount!        /     
+                     `-> same as in image/dockerfile case
+                     
+     => could be container is designed only for one of the cases!!
+        so neither is the correct one!
+        
+        so, just do same with code-remote
+           folder case: no bind!
+           url case: volume mount!
+  
+   
+           
+           
+  explanation why in GIT-URL case the workspaceFolder and workspaceMount fields in  devcontainer.json are IGNORED!!          
+    
+     from: https://code.visualstudio.com/remote/advancedcontainers/change-default-source-mount
+ 
+         "workspaceMount": "source=${localWorkspaceFolder}/sub-folder,target=/workspace,type=bind",
+         "workspaceFolder": "/workspace"
+     
+         -> combo which uses localWorkspaceFolder which is not available when 
+            using git url. => so good to ignore them then and stick to auto case of 
+                               clone repo in volume and mount that 
+                               volume at workspaceFolder /workspaces/<REPOBASENAME>
+        
+     
+     
+     thus in practice
+       when using git url then gitrepo should already be designed to be used as devcontainer 
+       using an url access which expect files in  /workspaces/<REPOBASENAME>
+ 
+       if it is also designed to be used as a local clone and binded then local folder 
+       should be designed to be binded into /workspaces/<REPOBASENAME> also
+   
+    
+     however sometimes people did not do this well, 
+     so then by adding an optional workspacefolder argument lets them easily override the workspace folder
+     however for more complicated configuration options like change mount (volume/bind)
+     then they must do it theirselves by cloning the git repo  and edit the devcontainer.json
+     in the local checkout of the git repo. 
+     KISS: use the config file for complicated config!
+        
+ 
+ 
+ how does code-remote work
+ 
+     a) folder -> you want local bind you can edit on host. => mimics: "Dev Containers: Open folder in Container..."
+                => with --volume option however still do same as in b)
+                
+         => two different cases qua config in devcontainer.json
+                 docker-compose -> only allows workspacefolder setting with default of / 
+                                -> has no workspacemount option => by default nothing mounted
+                
+                     so by default normally nothing bind mounted
+                     -> if wanted you can edit "mounts" field in devcontainer.json
+                     
+                     change for workspacefolder can be set in devcontainer.json also,
+                     or by setting the workspacefolder cmdline option if you only want to change that quickly!!
+
+                 image/dockerfile  -> allows both "workspaceFolder" and "workspaceMount"
+                                      and when not set in config file uses 
+                                      default of 
+                                        workspaceMount: bind your local workspace folder in /workspaces/basename
+                                        workspaceFolder: /workspaces/basename
+                                      see https://code.visualstudio.com/remote/advancedcontainers/change-default-source-mount
+                                            
+                     if wanted you can edit "workspaceFolder" and workspaceFolder fields in devcontainer.json                   
+                     or by setting the workspacefolder cmdline option if you only want to change that quickly!!                    
+                     
+     b) git url. -> all in container  => mimics: "Dev Containers: Clone Repository in Container Volume..."
+                                                  with the deviation that we still use and do not ignore the
+                                                  workspaceFolder setting in devcontainer.json when using docker compose.
+                                                          
+         => repo in volume mounted in /workspaces/<REPOBASENAME>
+         => two different cases qua config in devcontainer.json
+         
+              docker-compose -> only has workspacefolder setting which is ignored (probable reason below)
+                                -> has no workspacemount option => by default nothing mounted
+                                                                      `-> but in git url case suddenly git repo mounted!!
+                                    =>note: also "mounts" option does not work to mount host workspace: using "Dev Containers: Clone Repository in Container Volume..."
+                                          "mounts": [{ "source": "${localWorkspaceFolder}", "target": "/workspace", "type": "bind" }],
+                                       which gives error:
+                                         Error response from daemon: Mounts denied: 
+                                         The path /workspaces/pmwikiconf is not shared from the host and is not known to Docker.                                  
+                                                  `-> value of localWorkspaceFolder (and containerWorkspaceFolder)
+                                                      in case of  "Dev Containers: Clone repository in container volume"
+                                      => so mounts is tried but gives error because localWorkspaceFolder has unknown value on host!
+                                         however a volume mount probably does work? -> not tested, but probably does!
+                                         of a local bind using an explicit host path -> yes!
+                                         
+                         
+                     => note because we can only set  "workspaceFolder" and not workspaceMount
+                        the  "workspaceFolder" cannot be based on localWorkspaceFolder, which we then not have,
+                        and is thus safe to use!!
+                        => probably ignoring of "workspaceFolder" is also applied here, because
+                           it is also applied in git-url case, but that is a probable bug! 
+                            see issue: https://github.com/microsoft/vscode-remote-release/issues/3034
+                           It is reasonable to apply the "workspaceFolder" setting in this case.
+                            -> so we deviate from current git clone in volume solution in vscode
+                               and respect the  "workspaceFolder" setting  in the devcontainer file!!
+                        
+                     ===> so stick to default workspacefolder : /workspaces/<REPOBASENAME>. (= volume mount of repo!)
+                        HOWEVER allow end user specify a different "workspaceFolder" in both
+                        devcontainer.json (in git repo) or on commandline
+                        -> we can override on the commandline if our approach to allow  "workspaceFolder" setting 
+                           in the devcontainer file does not suit!
+       
+                       
+                   
+                    IMPLEMENTATION details:  
+                     => we still use tmp clone of repo and open using this hostfolder in vscode            
+                     => add volume mount of repo in "mounts" config value 
+                    
+                   
+              image/dockerfile  -> allows both "workspaceFolder" and "workspaceMount" which both are ignore (reason below)
+
+                                        
+                     => as above demonstrated we cannot use  "workspaceFolder" and "workspaceMount" because 
+                        both can be based on localWorkspaceFolder which we then not have!
+                       
+                   ===> so stick to default workspacefolder : /workspaces/<REPOBASENAME> (= volume mount of repo!)
+                        HOWEVER allow end user specify a different "workspaceFolder" on commandline
+                        instead of default
+                    
+                    
+                IMPLEMENTATION details: 
+                  => we still use tmp clone of repo and open using this hostfolder in vscode            
+                     from that we mirror our repo into volume
+                  => so add/override workspaceMount in devcontainer which does volume mount of our volume       
+                         -> then bind does not happen!
+                         => but how to prevent bind without mount volume override?? -> -n option below
+                              -> HACK: use a dummy empty volume (code-remote-volume-emptydummy) to bind to!
+                                NOTE: often these devcontainers have postcreate commands which do something 
+                                      with data in repo mounted, and if the mount is not there this 
+                                      command will give error
+                                      -> either remove postcreate command , or still allow the volume mount with repo content
+                                      
+                                      KISS: always mount, but let user choose between bind or volume
+                                            note: for GIT-URL always volume!!
+          THUS
+            
+            code-remote [-n] [-v] FOLDER |GIT-URL [WORKSPACEFOLDER]
+                          |     `-> use named volume instead of bind in case of FOLDER
+                          |         useful if you want to be fully isolated from host!!
+                          |         Imitates git-url approach but then from a local folder!
+                           `-> no mount at all (from host or volume)  
+                                UPDATE: remove this option -> instead if people do no want a bind of local folder
+                                        then they must use the -v option! -> still fully isolated from host!
+                                
+                                UPDATE2: at then end did implement it; no need to create a volume when not using it!
+                                
+                                                                             
+             => volume name is notified to end-user,
+                and end-user must clean this themselves
+                
+                naming convention
+                  code-remote-volume-<BASENAME>. or juse code-volume-<BASENAME>
+         
+               
+               note: this volume is on each reconnect reused. To force a new fresh volume, 
+                     then enduser must delete the volume, and automatically a new
+                     volume is created. 
+                     note: the implementation does fresh git clone from which volume is 
+                           created! (using mirror command)
+                
+                note: a named volume is used, because an anymous volume is only created when starting container
+                      and cannot be created earlier (read prepared in advance).
+                      Using a named volume, makes it also clearer for end user where data is,
+                      and as written above lets you reuse it easily on new reconnects to devcontainer,
+                      and makes it evident that if you delete it, you will start with a fresh newly created volume!
+                      
+                      With mirror command you can even easily backup your work in a named container!
+
+=================================================================================================  
