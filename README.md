@@ -77,7 +77,9 @@ Help info from `code-remote --help`:
       is by default ignored, however by supplying the -f option code-remote will still use it.
       The workspace folder can still always be overruled by the end user by using the
       WORKSPACEFOLDER argument on the command line. Finally we must emphasize that changing
-      the workspace folder doesn't change the mount location.
+      the workspace folder doesn't change the mount location. And if still we got the
+      wrong workspace folder in visual studio code you can always open it in a different
+      working folder using the menu 'File -> Open Folder...'.
 
       Tweaks:
        * If for a FOLDER you want to have a volume mount instead of a bind mount, then
