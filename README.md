@@ -31,7 +31,7 @@ Help info from `code-remote --help`:
 
     USAGE
       code-remote [-v|-f|-n]  FOLDER   [WORKSPACEFOLDER]
-      code-remote [-n]        GIT-URL  [WORKSPACEFOLDER]
+      code-remote [-f|-n]     GIT-URL  [WORKSPACEFOLDER]
       code-remote --try|-t    LANGUAGE
 
         LANGUAGE: the following languages are available in a try dev-container:
@@ -42,10 +42,11 @@ Help info from `code-remote --help`:
         * https://github.com/harcokuppens/code-remote
 
     OPTIONS    
-      -v  instead of bind mount the host folder is mirrored in a named volume and mounted     
-      -n  no mount, by default workspace folder set to /
-      -f  use workspace folder set in devcontainer.json
-      -t  try a sample development containers 
+      -v    instead of bind mount the host folder is mirrored in a named volume and mounted     
+      -n    no mount, by default workspace folder set to /. Can be combined with -f.
+      -f    still use workspace folder set in devcontainer.json in cases when it would be ignored 
+      -t, --try 
+            try a sample development containers 
       
     DESCRIPTION
       When opening dev container
