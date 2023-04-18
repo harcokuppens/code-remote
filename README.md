@@ -111,6 +111,7 @@ Help info from `code-remote --help`:
         * the named volume is reused when you later open the dev container again
         * only when you delete the named volume with 'docker image rm VOLNAME'
           then a new fresh named volume is created from the GIT-URL/FOLDER.
+          You can also use the option -f.
         * The reason for this behavior is that you easily can continue developing from
           an existing volume. When you close visual studio code, and later open it
           again you get the same volume opened again from which you can continue.
