@@ -30,9 +30,9 @@ Help info from `code-remote --help`:
       code-remote - Open a dev container in visual studio code from the command line directly.
 
     USAGE
-      code-remote [-v|-w|-n]  FOLDER   [WORKSPACEFOLDER]
-      code-remote [-w|-n]     GIT-URL  [WORKSPACEFOLDER]
-      code-remote --try|-t    LANGUAGE
+      code-remote [-v|-w|-n|f]  FOLDER   [WORKSPACEFOLDER]
+      code-remote [-w|-n|f]     GIT-URL  [WORKSPACEFOLDER]
+      code-remote --try|-t      LANGUAGE
 
         LANGUAGE: the following languages are available in a try dev-container:
                   python go php node java rust dotnet cpp sqlserver
