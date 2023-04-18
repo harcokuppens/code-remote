@@ -30,8 +30,8 @@ Help info from `code-remote --help`:
       code-remote - Open a dev container in visual studio code from the command line directly.
 
     USAGE
-      code-remote [-v|-f|-n]  FOLDER   [WORKSPACEFOLDER]
-      code-remote [-f|-n]     GIT-URL  [WORKSPACEFOLDER]
+      code-remote [-v|-w|-n]  FOLDER   [WORKSPACEFOLDER]
+      code-remote [-w|-n]     GIT-URL  [WORKSPACEFOLDER]
       code-remote --try|-t    LANGUAGE
 
         LANGUAGE: the following languages are available in a try dev-container:
@@ -42,9 +42,10 @@ Help info from `code-remote --help`:
         * https://github.com/harcokuppens/code-remote
 
     OPTIONS    
-      -v    instead of bind mount the host folder is mirrored in a named volume and mounted     
-      -n    no mount, by default workspace folder set to /. Can be combined with -f.
-      -f    still use workspace folder set in devcontainer.json in cases when it would be ignored 
+      -v    instead of bind mount the host folder is mirrored in a named volume and mounted  
+      -f    use a fresh instance; eg. fresh named volume  and or fresh git clone
+      -n    no mount, by default workspace folder set to /. Can be combined with -w.
+      -w    still use workspace folder set in devcontainer.json in cases when it would be ignored 
       -t, --try 
             try a sample development containers 
       
@@ -74,7 +75,7 @@ Help info from `code-remote --help`:
       The workspace folder in visual studio code is set by default to the mount location.
       However an end user can specify a  different 'workspaceFolder' in devcontainer.json.
       There is a small exception: for a GIT-URL the 'workspaceFolder' in devcontainer.json
-      is by default ignored, however by supplying the -f option code-remote will still use it.
+      is by default ignored, however by supplying the -w option code-remote will still use it.
       The workspace folder can still always be overruled by the end user by using the
       WORKSPACEFOLDER argument on the command line. Finally we must emphasize that changing
       the workspace folder doesn't change the mount location. And if still we got the
@@ -89,7 +90,7 @@ Help info from `code-remote --help`:
          in the dev container! Useful if you want to be fully isolated from the host.
          The mount is then always in /workspaces/<FOLDERBASENAME>.
          The 'workspaceFolder' in devcontainer.json is then also by default ignored,
-         however by supplying the -f option code-remote will still use it.
+         however by supplying the -w option code-remote will still use it.
        * If for a GIT-URL you want to have a host folder mounted(bind mount) instead,
          then git clone the url into a FOLDER, and open that FOLDER with code-remote.
 
@@ -104,7 +105,6 @@ Help info from `code-remote --help`:
         * on first usage the named volume is automatically created from the GIT-URL/FOLDER
           with naming convention:
 
-             code-volume-<BASENAME_OF_URL_OR_FOLDER>
              code-volume-<ESCAPED_URL_OR_FOLDER>
 
         * when using a named volume its name is notified in the terminal
