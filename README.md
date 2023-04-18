@@ -29,10 +29,10 @@ Help info from `code-remote --help`:
     NAME
       code-remote - Open a dev container in visual studio code from the command line directly.
 
-
-    USAGE:
-      code-remote FOLDER|GIT-URL [WORKSPACEFOLDER]
-      code-remote --try|-t LANGUAGE
+    USAGE
+      code-remote [-v|-f|-n]  FOLDER   [WORKSPACEFOLDER]
+      code-remote [-n]        GIT-URL  [WORKSPACEFOLDER]
+      code-remote --try|-t    LANGUAGE
 
         LANGUAGE: the following languages are available in a try dev-container:
                   python go php node java rust dotnet cpp sqlserver
@@ -41,7 +41,12 @@ Help info from `code-remote --help`:
         * code-remote --help
         * https://github.com/harcokuppens/code-remote
 
-
+    OPTIONS    
+      -v  instead of bind mount the host folder is mirrored in a named volume and mounted     
+      -n  no mount, by default workspace folder set to /
+      -f  use workspace folder set in devcontainer.json
+      -t  try a sample development containers 
+      
     DESCRIPTION
       When opening dev container
         * from a FOLDER by default this host folder is mounted (bind mount).
