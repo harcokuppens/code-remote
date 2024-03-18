@@ -413,7 +413,7 @@ function code-remote {
        local contains_dockerComposeFile="false"
        grep -E '^\s*"workspaceFolder' "$devcontfile" 2>/dev/null >/dev/null && contains_workspaceFolder="true"
        grep -E '^\s*"image' "$devcontfile" 2>/dev/null >/dev/null && contains_image="true"
-       grep -E '^\s*"dockerFile' "$devcontfile" 2>/dev/null >/dev/null && contains_dockerFile="true"
+       grep -E '^\s*"dockerfile' "$devcontfile" 2>/dev/null >/dev/null && contains_dockerFile="true"
        grep -E '^\s*"dockerComposeFile' "$devcontfile" 2>/dev/null >/dev/null && contains_dockerComposeFile="true"
 
        # first verify devcontainer.json file correctly configured 
