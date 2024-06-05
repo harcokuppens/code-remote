@@ -4,7 +4,7 @@ Launch a dev-container from a local folder or git URL directly in visual studio 
 
 ## Installation 
 
-The `code-mirror` command is a simple scripts in `bash`, so you can easily fetch it for a specific version from github:
+The `code-remote` command is a simple scripts in `bash`, so you can easily fetch it for a specific version from github:
 
     PROGRAM="code-remote"
     REPO="harcokuppens/code-remote" 
